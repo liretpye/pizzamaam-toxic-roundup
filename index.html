@@ -112,6 +112,28 @@ canvas{max-height:260px;}
 .statbig{font-size:40px;font-weight:800;line-height:1;}
 .foot{color:var(--mut);font-size:11.5px;margin:34px 0 6px;line-height:1.7;}
 .tag{display:inline-block;background:var(--red);color:#fff;font-weight:700;padding:3px 11px;border-radius:8px;font-size:12px;}
+/* RIGHT-CLICK WALL */
+#wallLayer{position:absolute;top:0;left:0;z-index:50;pointer-events:none;}
+.wall-note{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;}
+.wall-note .wn-x{position:absolute;top:-9px;right:-9px;width:17px;height:17px;border-radius:50%;border:none;background:#f8514a;color:#fff;font-size:12px;line-height:15px;cursor:pointer;display:none;padding:0;}
+.wall-note:hover .wn-x{display:block;}
+.wn-emoji .wn-em{font-size:30px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.55));cursor:default;}
+.wn-comment{max-width:230px;background:#fffae6;color:#23210f;padding:8px 11px;border-radius:11px 11px 11px 2px;box-shadow:0 7px 20px rgba(0,0,0,.5);font-size:13px;line-height:1.35;transform:translate(-50%,-50%) rotate(-1.5deg);}
+.wn-comment .wn-meta{margin-top:5px;font-size:10px;color:#9a8f60;text-transform:uppercase;letter-spacing:.4px;}
+#wallMenu{position:fixed;z-index:100;background:#10161f;border:1px solid #2a3442;border-radius:13px;padding:9px;box-shadow:0 14px 34px rgba(0,0,0,.6);}
+#wallMenu .wm-emojis{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;margin-bottom:7px;}
+#wallMenu .wm-e{font-size:21px;background:transparent;border:none;cursor:pointer;padding:5px;border-radius:8px;line-height:1;}
+#wallMenu .wm-e:hover{background:#222c39;}
+#wallMenu .wm-comment{width:100%;background:#222c39;color:#eef3f8;border:none;border-radius:8px;padding:8px;font-size:12.5px;cursor:pointer;font-family:var(--sans);font-weight:600;}
+#wallMenu .wm-comment:hover{background:#2c384a;}
+#wallMenu .wm-form{display:flex;flex-direction:column;gap:7px;width:224px;}
+#wallMenu .wm-name,#wallMenu .wm-text{background:#0b1017;border:1px solid #2a3442;border-radius:8px;color:#eef3f8;padding:8px;font-size:12.5px;font-family:var(--sans);}
+#wallMenu .wm-text{min-height:62px;resize:vertical;}
+#wallMenu .wm-actions{display:flex;gap:7px;justify-content:flex-end;}
+#wallMenu .wm-actions button{border:none;border-radius:7px;padding:6px 13px;font-size:12px;cursor:pointer;font-family:var(--sans);}
+#wallMenu .wm-cancel{background:#222c39;color:#93a0b0;}
+#wallMenu .wm-post{background:var(--orange);color:#1a1205;font-weight:700;}
+#wallHint{position:fixed;left:14px;bottom:14px;z-index:60;background:rgba(16,22,31,.92);border:1px solid #2a3442;border-radius:30px;padding:8px 15px;font-size:12px;color:#bcd4ee;pointer-events:none;backdrop-filter:blur(4px);}
 </style></head><body>
 
 <div class="hero">
@@ -300,5 +322,105 @@ new Chart($('roleChart'),{type:'doughnut',data:{labels:D.role_matches.map(r=>r.r
  options:{plugins:{legend:{position:'bottom',labels:gtxt}}}});
 $('hrs').textContent=D.ow_totals.hours+' hrs';
 $('gamesnote').textContent=D.ow_totals.games.toLocaleString()+' games · '+D.ow_totals.kd+' career K/D';
+</script>
+
+<script>
+/* ===== Right-click emoji & comment wall (shared via Pantry) ===== */
+(function(){
+  const PANTRY="1ac20bb7-9a11-4763-823f-7087add7de80";
+  const BASKET="https://getpantry.cloud/apiv1/pantry/"+PANTRY+"/basket/wall";
+  const live = PANTRY && PANTRY.indexOf("__")!==0;
+  const EMOJIS=["😂","🔥","💀","👏","❤️","🤡","🎯","🫡","😬","🧂"];
+  let notes=[], myIds=JSON.parse(localStorage.getItem('wallMine')||'[]');
+  let pendingX=0,pendingY=0;
+  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const docSize=()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight});
+
+  const layer=document.createElement('div');layer.id='wallLayer';document.body.appendChild(layer);
+  const hint=document.createElement('div');hint.id='wallHint';document.body.appendChild(hint);
+  const menu=document.createElement('div');menu.id='wallMenu';menu.style.display='none';
+  menu.innerHTML='<div class="wm-emojis">'+EMOJIS.map(e=>'<button class="wm-e" data-e="'+e+'">'+e+'</button>').join('')+'</div>'+
+    '<button class="wm-comment">💬 Add a comment</button>'+
+    '<div class="wm-form" style="display:none">'+
+      '<input class="wm-name" placeholder="name (optional)" maxlength="24"/>'+
+      '<textarea class="wm-text" placeholder="say something…" maxlength="200"></textarea>'+
+      '<div class="wm-actions"><button class="wm-cancel">cancel</button><button class="wm-post">post</button></div>'+
+    '</div>';
+  document.body.appendChild(menu);
+
+  function sizeLayer(){const s=docSize();layer.style.height=s.h+'px';layer.style.width=s.w+'px';}
+  function showMenu(cx,cy){
+    menu.style.display='block';
+    menu.querySelector('.wm-form').style.display='none';
+    menu.querySelector('.wm-emojis').style.display='';
+    menu.querySelector('.wm-comment').style.display='';
+    const mw=menu.offsetWidth||240,mh=menu.offsetHeight||70;
+    menu.style.left=Math.max(6,Math.min(cx,window.innerWidth-mw-8))+'px';
+    menu.style.top=Math.max(6,Math.min(cy,window.innerHeight-mh-8))+'px';
+  }
+  const hideMenu=()=>menu.style.display='none';
+
+  document.addEventListener('contextmenu',function(e){
+    if(e.target.closest('#wallMenu')||e.target.closest('input,textarea,select,a')) return;
+    e.preventDefault();
+    const s=docSize();pendingX=e.pageX/s.w;pendingY=e.pageY/s.h;
+    showMenu(e.clientX,e.clientY);
+  });
+  document.addEventListener('click',e=>{if(!e.target.closest('#wallMenu'))hideMenu();});
+  menu.querySelectorAll('.wm-e').forEach(b=>b.addEventListener('click',()=>{addNote('emoji',b.dataset.e,'');hideMenu();}));
+  menu.querySelector('.wm-comment').addEventListener('click',()=>{
+    menu.querySelector('.wm-emojis').style.display='none';
+    menu.querySelector('.wm-comment').style.display='none';
+    const f=menu.querySelector('.wm-form');f.style.display='block';
+    menu.querySelector('.wm-name').value=localStorage.getItem('wallName')||'';
+    menu.querySelector('.wm-text').focus();
+  });
+  menu.querySelector('.wm-cancel').addEventListener('click',hideMenu);
+  menu.querySelector('.wm-post').addEventListener('click',()=>{
+    const t=menu.querySelector('.wm-text').value.trim();if(!t)return;
+    const nm=menu.querySelector('.wm-name').value.trim().slice(0,24);
+    if(nm)localStorage.setItem('wallName',nm);
+    menu.querySelector('.wm-text').value='';
+    addNote('comment',t,nm);hideMenu();
+  });
+
+  const uid=()=>'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  async function getNotes(){
+    if(!live)return notes;
+    try{const r=await fetch(BASKET,{cache:'no-store'});if(!r.ok)return [];const j=await r.json();return Array.isArray(j.notes)?j.notes:[];}catch(e){return notes;}
+  }
+  async function putNotes(arr){ if(!live)return; try{await fetch(BASKET,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:arr})});}catch(e){} }
+  async function addNote(type,content,name){
+    const note={id:uid(),type:type,content:content,name:name||'',x:pendingX,y:pendingY,ts:Date.now()};
+    notes.push(note);myIds.push(note.id);localStorage.setItem('wallMine',JSON.stringify(myIds));renderNotes();
+    const latest=await getNotes();latest.push(note);notes=latest;await putNotes(latest);renderNotes();
+  }
+  async function removeNote(id){
+    notes=notes.filter(n=>n.id!==id);renderNotes();
+    const latest=(await getNotes()).filter(n=>n.id!==id);notes=latest;await putNotes(latest);renderNotes();
+  }
+  function renderNotes(){
+    sizeLayer();layer.innerHTML='';
+    notes.forEach(n=>{
+      const el=document.createElement('div');
+      el.className='wall-note '+(n.type==='emoji'?'wn-emoji':'wn-comment');
+      el.style.left=(n.x*100)+'%';el.style.top=(n.y*100)+'%';
+      const mine=myIds.includes(n.id);
+      if(n.type==='emoji'){
+        el.innerHTML='<span class="wn-em">'+n.content+'</span>'+(mine?'<button class="wn-x">×</button>':'');
+        el.title=(n.name?n.name+' · ':'')+new Date(n.ts).toLocaleString();
+      }else{
+        el.innerHTML='<div class="wn-body">'+esc(n.content)+'</div><div class="wn-meta">'+(n.name?esc(n.name):'anon')+' · '+new Date(n.ts).toLocaleDateString()+'</div>'+(mine?'<button class="wn-x">×</button>':'');
+        el.title=new Date(n.ts).toLocaleString();
+      }
+      if(mine)el.querySelector('.wn-x').addEventListener('click',ev=>{ev.stopPropagation();removeNote(n.id);});
+      layer.appendChild(el);
+    });
+    hint.textContent='🖱️ Right-click anywhere to drop an emoji or note · '+notes.length+' on the wall';
+  }
+  window.addEventListener('resize',()=>{sizeLayer();renderNotes();});
+  async function poll(){const latest=await getNotes();if(JSON.stringify(latest)!==JSON.stringify(notes)){notes=latest;renderNotes();}}
+  (async()=>{notes=await getNotes();renderNotes();if(live)setInterval(poll,7000);})();
+})();
 </script>
 </body></html>
